@@ -149,8 +149,6 @@ class SVM:
             L, H : bounds
 
         """
-        # store old alpha2
-        old_alpha2 = self.alphas[ind2]
         # alpha_2_new
         self.alphas[ind2] =  self.alphas[ind2] - (y2 * (E_1 - E_2) / eta) 
         
@@ -161,7 +159,14 @@ class SVM:
             self.alphas[ind2] = L
 
         # alpha_1_new 
-        self.alphas[ind1] = self.alphas[ind1] + y1*y2 * (old_alpha2 - self.alphas[ind2])
+        self.alphas[ind1] = self.alphas[ind1] + y1*y2 * (self.old_alpha2 - self.alphas[ind2])
+
+
+    def update_threshold(self, ind1, ind2, E_1, E_2, y1, y2):
+        """
+        Function to update the threshold
+        """
+        
 
     def fit(self, X_train, y_train):
         """
@@ -193,4 +198,9 @@ class SVM:
             E_2 = f[X_train[index_alpha_2]] - y_train[index_alpha_2]
 
             # Update of the lagrange multipliers
+            self.old_alpha1 = self.alphas[index_alpha_1]
+            self.old_alpha2 = self.alphas[index_alpha_2]
             self.update_alphas(self, index_alpha_1, index_alpha_2, y_train[index_alpha_1], y_train[index_alpha_2], E_1, E_2, eta, L, H)
+
+            # Update of the threshold b 
+            
