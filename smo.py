@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 class SVM:
-    def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2):
+    def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef=0.0):
         """
         Sequentiel Minimal Optimization (SMO) algorithm for training SVMs.
 
@@ -15,11 +15,13 @@ class SVM:
             max_iter (int): number of passes. Defaults to 1000.
             tau (float): positive tolerance parameters.
         """
-        self.kernel = kernel # linear
+        self.kernel = kernel 
         self.C = C
         self.max_iter = max_iter
         self.tau = tau
         self.eps = eps
+        self.degree = degree # for polynomial kernel
+        self.coef = coef # for polynomial kernel
         
 
     def select_violated_pair(self, n) :
@@ -86,6 +88,22 @@ class SVM:
         """
         """
         pass
+
+    def which_kernel(self, x1, x2) :
+        """
+        Function to compute the kernel function
+
+        Args:
+            x1 (array-like): input vector 1
+            x2 (array-like): input vector 2
+
+        Return:
+            float: Value of the kernel function
+        """
+        if self.kernel == 'linear':
+            return np.dot(x1, x2.T)
+        elif self.kernel == 'polynomial':
+            return (np.dot(x1, x2.T) + self.coef) ** self.degree
 
     def fit(self, X_train, y_train):
         """
