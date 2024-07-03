@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 
 class SVM:
-    def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef=0.0):
+    def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef=0.0, gamma=1.0):
         """
         Sequentiel Minimal Optimization (SMO) algorithm for training SVMs.
 
@@ -21,7 +21,8 @@ class SVM:
         self.tau = tau
         self.eps = eps
         self.degree = degree # for polynomial kernel
-        self.coef = coef # for polynomial kernel
+        self.coef = coef # for polynomial/sigmoid kernel
+        self.gamma = gamma # for RBF kernel
         
 
     def select_violated_pair(self, n) :
@@ -89,21 +90,36 @@ class SVM:
         """
         pass
 
-    def which_kernel(self, x1, x2) :
+    def compute_eta(self, X, i, j):
         """
-        Function to compute the kernel function
+        Function to compute eta
 
         Args:
-            x1 (array-like): input vector 1
-            x2 (array-like): input vector 2
+            X : Training data features
+            i : index of the Lagrange multiplier 1
+            j : index of the Lagrange multiplier 2
 
         Return:
-            float: Value of the kernel function
+            Value of the second derivative of the objective function
         """
         if self.kernel == 'linear':
-            return np.dot(x1, x2.T)
-        elif self.kernel == 'polynomial':
-            return (np.dot(x1, x2.T) + self.coef) ** self.degree
+            K_ij = np.dot(X[i], X[j])
+            K_ii = np.dot(X[i], X[i])
+            K_jj = np.dot(X[j], X[j])
+        elif self.kernel == 'poly':
+            K_ij = (np.dot(X[i], X[j]) + self.coef0) ** self.degree
+            K_ii = (np.dot(X[i], X[i]) + self.coef0) ** self.degree
+            K_jj = (np.dot(X[j], X[j]) + self.coef0) ** self.degree
+        elif self.kernel == 'rbf':
+            K_ij = np.exp(-self.gamma * np.linalg.norm(X[i] - X[j]) ** 2)
+            K_ii = np.exp(-self.gamma * np.linalg.norm(X[i] - X[i]) ** 2)
+            K_jj = np.exp(-self.gamma * np.linalg.norm(X[j] - X[j]) ** 2)
+            K_ii = K_jj = 1.0  # Simplified because distance is zero
+        else :
+            raise ValueError("Unsupported kernel type: {}".format(self.kernel))
+        
+        eta = 2 * K_ij - K_ii - K_jj
+        return eta
 
     def fit(self, X_train, y_train):
         """
@@ -123,4 +139,4 @@ class SVM:
                 continue # to next i
             
             # Compute of eta
-            
+            eta = self.compute_eta(X_train, index_alpha_1, index_alpha_2)
