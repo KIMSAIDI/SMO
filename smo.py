@@ -85,7 +85,7 @@ class SVM:
         I_up = I_0 + I_1 + I_2
         I_low = I_0 + I_3 + I_4
 
-        F = self.compute_F()
+        F = self.compute_F(self.X_train)
 
         max_diff = -np.inf
         index_alpha_1, index_alpha_2 = -1, -1
@@ -123,11 +123,17 @@ class SVM:
 
         return L, H
     
-    def compute_F(self):
+    def compute_F(self, X):
         """
-        Compute the decision function F for all samples
+        Compute the decision function F for given input X.
+
+        Args:
+            X : Input data features
+
+        Returns:
+            Decision function values
         """
-        F = np.dot(self.X_train, self.X_train.T)
+        F = np.dot(X, self.X_train.T)
         return np.dot((self.alphas * self.y_train), F.T)
     
 
@@ -221,13 +227,11 @@ class SVM:
             
             # Compute of the bounds
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
-            print(f'Compute of L and H with success: L = {L} and H = {H}')
             if L == H :
                 continue # to next i
             
             # Compute of eta
             eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
-            print(f'Compute of eta with sucess: eta = {eta}')
             if eta >= 0 :
                 continue  # to next i
             
@@ -240,17 +244,17 @@ class SVM:
             E_2 = f[X_train[index_alpha_2]] - y_train[index_alpha_2]
             """
 
-            E_1 = self.compute_F()[index_alpha_1] - self.y_train[index_alpha_1]
-            E_2 = self.compute_F()[index_alpha_2] - self.y_train[index_alpha_2]
+            E_1 = self.compute_F(self.X_train)[index_alpha_1] - self.y_train[index_alpha_1]
+            E_2 = self.compute_F(self.X_train)[index_alpha_2] - self.y_train[index_alpha_2]
 
             # Update of the lagrange multipliers
             self.old_alpha1 = self.alphas[index_alpha_1]
             self.old_alpha2 = self.alphas[index_alpha_2]
-            self.update_alphas(index_alpha_1, index_alpha_2, self.y_train[index_alpha_1], self.y_train[index_alpha_2], E_1, E_2, eta, L, H)
+            self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H)
 
             # Update of the threshold b 
             self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.y_train[index_alpha_1], self.y_train[index_alpha_2])
 
-
+            print(f'b = {self.b}')
 
 
