@@ -1,6 +1,7 @@
 from sklearn import datasets
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
 
 
@@ -32,12 +33,16 @@ class SVM:
         """
         if self.kernel == 'linear':
             return np.dot(x1, x2.T)
+        
         elif self.kernel == 'poly':
             return (np.dot(x1, x2.T) + self.coef0) ** self.degree
+        
         elif self.kernel == 'rbf':
             return np.exp(-self.gamma * np.linalg.norm(x1 - x2) ** 2)
+        
         elif self.kernel == 'sigmoid':
             return np.tanh(self.gamma * np.dot(x1, x2.T) + self.coef0)
+        
         else:
             raise ValueError("Unsupported kernel type: {}".format(self.kernel))
         
@@ -133,9 +138,10 @@ class SVM:
         Returns:
             Decision function values
         """
-        F = np.dot(X, self.X_train.T)
-        return np.dot((self.alphas * self.y_train), F.T)
-    
+        K = self.compute_kernel(X, self.X_train)  # Kernel matrix between X and X_train
+        F = np.dot(K, self.alphas * self.y_train) + self.b  
+        return F
+        
 
     def compute_objective_function(self):
         """
@@ -156,43 +162,9 @@ class SVM:
         objective_value = term1 - term2
         return objective_value
 
-    def compute_F(self):
-        """
-        """
-        pass
 
-    def compute_eta(self, X, i, j):
-        """
-        Function to compute eta
-
-        Args:
-            X : Training data features
-            i : index of the Lagrange multiplier 1
-            j : index of the Lagrange multiplier 2
-
-        Return:
-            Value of the second derivative of the objective function
-        """
-        if self.kernel == 'linear':
-            K_ij = np.dot(X[i], X[j])
-            K_ii = np.dot(X[i], X[i])
-            K_jj = np.dot(X[j], X[j])
-        elif self.kernel == 'poly':
-            K_ij = (np.dot(X[i], X[j]) + self.coef0) ** self.degree
-            K_ii = (np.dot(X[i], X[i]) + self.coef0) ** self.degree
-            K_jj = (np.dot(X[j], X[j]) + self.coef0) ** self.degree
-        elif self.kernel == 'rbf':
-            K_ij = np.exp(-self.gamma * np.linalg.norm(X[i] - X[j]) ** 2)
-            K_ii = np.exp(-self.gamma * np.linalg.norm(X[i] - X[i]) ** 2)
-            K_jj = np.exp(-self.gamma * np.linalg.norm(X[j] - X[j]) ** 2)
-            K_ii = K_jj = 1.0  
-        else :
-            raise ValueError("Unsupported kernel type: {}".format(self.kernel))
-        
-        eta = 2 * K_ij - K_ii - K_jj
-        return eta
     
-    def update_alphas(self, ind1, ind2, y1, y2, E_1, E_2, eta, L, H):
+    def update_alphas(self, i, j, E_i, E_j, eta, L, H):
         """
         Function to update the alphas
 
@@ -204,20 +176,36 @@ class SVM:
             eta : second derivative of the objective function
             L, H : bounds
         """
-        y1 = self.y_train[index_alpha_1]
-        y2 = self.y_train[index_alpha_2]
-
-        # alpha_2_new
-        self.alphas[index_alpha_2] -= (y2 * (E_1 - E_2) / eta) 
+        # y1 = self.y_train[index_alpha_1]
+        # y2 = self.y_train[index_alpha_2]
         
-        # alpha_2_new_clipped
-        if self.alphas[index_alpha_2] >= H :
-            self.alphas[index_alpha_2] = H
-        elif self.alphas[index_alpha_2] <= L :
-            self.alphas[index_alpha_2] = L
+        if eta >= 0:
+            return False
 
-        # alpha_1_new 
-        self.alphas[index_alpha_1] += y1*y2 * (self.old_alpha2 - self.alphas[index_alpha_2])
+        alpha_i_old = self.alphas[i]
+        alpha_j_old = self.alphas[j]
+
+        self.alphas[j] -= (self.y_train[j] * (E_i - E_j)) / eta
+        self.alphas[j] = np.clip(self.alphas[j], L, H)
+
+        if abs(self.alphas[j] - alpha_j_old) < self.eps:
+            return False
+
+        self.alphas[i] += self.y_train[i] * self.y_train[j] * (alpha_j_old - self.alphas[j])
+
+        return True
+
+        # # alpha_2_new
+        # self.alphas[index_alpha_2] -= (y2 * (E_1 - E_2) / eta) 
+        
+        # # alpha_2_new_clipped
+        # if self.alphas[index_alpha_2] >= H :
+        #     self.alphas[index_alpha_2] = H
+        # elif self.alphas[index_alpha_2] <= L :
+        #     self.alphas[index_alpha_2] = L
+
+        # # alpha_1_new 
+        # self.alphas[index_alpha_1] += y1*y2 * (self.old_alpha2 - self.alphas[index_alpha_2])
 
     
     def update_threshold(self, ind1, ind2, E_1, E_2, y1, y2):
@@ -234,11 +222,17 @@ class SVM:
         else:
             self.b = (b1 + b2) / 2
 
+    
     def scale_labels(self, labels):
         """
         Function to scale labels to -1 and 1.
         """
-        return np.where(labels == 0, -1, 1)
+        min_val = np.min(labels)
+        max_val = np.max(labels)
+        
+        return np.where(labels == min_val, -1, 1)
+
+   
 
     def fit(self, X_train, y_train):
         """
@@ -256,7 +250,7 @@ class SVM:
         for _ in range(self.max_iter):
             # Compute of the index for both alphas
             index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
-            if (index_alpha_1 == -1 & index_alpha_2 == -1):
+            if (index_alpha_1 == -1 or index_alpha_2 == -1):
                 # has converge
                 break
             
@@ -266,9 +260,16 @@ class SVM:
                 continue # to next i
             
             # Compute of eta
+            # eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
+            # if eta >= 0 :
+                #continue  # to next i
+            
+            E_1 = self.compute_F(self.X_train[index_alpha_1].reshape(1, -1)) - self.y_train[index_alpha_1]
+            E_2 = self.compute_F(self.X_train[index_alpha_2].reshape(1, -1)) - self.y_train[index_alpha_2]
+
             eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
-            if eta >= 0 :
-                continue  # to next i
+            if not self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
+                continue
             
             """
             # Compute of the objective function f
@@ -279,17 +280,27 @@ class SVM:
             E_2 = f[X_train[index_alpha_2]] - y_train[index_alpha_2]
             """
 
-            E_1 = self.compute_F(self.X_train)[index_alpha_1] - self.y_train[index_alpha_1]
-            E_2 = self.compute_F(self.X_train)[index_alpha_2] - self.y_train[index_alpha_2]
+            # E_1 = self.compute_F(self.X_train)[index_alpha_1] - self.y_train[index_alpha_1]
+            # E_2 = self.compute_F(self.X_train)[index_alpha_2] - self.y_train[index_alpha_2]
 
             # Update of the lagrange multipliers
-            self.old_alpha1 = self.alphas[index_alpha_1]
-            self.old_alpha2 = self.alphas[index_alpha_2]
-            self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H)
+            # self.old_alpha1 = self.alphas[index_alpha_1]
+            # self.old_alpha2 = self.alphas[index_alpha_2]
+            # self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H)
 
             # Update of the threshold b 
             self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.y_train[index_alpha_1], self.y_train[index_alpha_2])
 
-            print(f'b = {self.b}')
+   
+    def predict(self, X):
+        """
+        Predict the class labels for the given input data.
 
+        Args:
+            X : Input data features
 
+        Returns:
+            Predicted class labels
+        """
+        F = self.compute_F(X)  # Compute the decision function for the input data
+        return np.sign(F)  # Return the sign of the decision function values
