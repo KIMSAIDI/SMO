@@ -34,7 +34,15 @@ class SVM:
         Return:
             Index for the pair of the Lagrange multipliers
         """
-        I_all = np.arange(n)
+        _all = np.arange(n)
+        I_0 = [i for i in _all if ((self.alpha[i] > 0) & (self.aplha[i] < self.C))]
+        I_1 = [i for i in _all if ((self.y[i] == 1) & self.alpha[i] == 0)]
+        I_2 = [i for i in _all if ((self.y[i] == -1) & (self.alpha[i] == self.C))]
+        I_3 = [i for i in _all if ((self.y[i] == 1) & (self.alpha[i] == self.C))]
+        I_4 = [i for i in _all if ((self.y[i] == -1) & (self.alpha[i] == 0))]
+        
+        I_up = I_0 + I_1 + I_2
+        I_low = I_0 + I_3 + I_4
 
         pass
 
@@ -100,8 +108,16 @@ class SVM:
 
     def compute_F(self):
         """
+        Compute the objective function F.
+        
+        Args:
+            K (np.ndarray): kernel matrix
+        
+        Returns:
+            F (float): objective function value
         """
-        pass
+        return self.y * np.sum(self.alpha * K - 1)
+        
 
     def compute_eta(self, X, i, j):
         """
