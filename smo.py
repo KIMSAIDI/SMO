@@ -1,64 +1,80 @@
-from sklearn import datasets
 import numpy as np
 import matplotlib.pyplot as plt
-import time
-
-
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 class SVM:
     def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef0=0.0, gamma=1.0):
         """
-        Sequentiel Minimal Optimization (SMO) algorithm for training SVMs.
-
-        Args:
-            kernel (str): kernel function to use. Defaults to 'linear'.
-            C (float): regularization parameter
-            max_iter (int): number of passes. Defaults to 1000.
-            tau (float): positive tolerance parameters.
+        kernel: str, default='linear'
+            Specifies the kernel type to be used in the algorithm.
+            It must be one of 'linear', 'poly', 'rbf', 'sigmoid'.
+        C: float, default=1
+            Penalty parameter C of the error term.
+        max_iter: int, default=10000
+            The maximum number of iterations to run the algorithm.
+        tau: float, default=1e-3
+            Tolerance for the stopping criterion.
+        eps: float, default=1e-2
+            Tolerance for the numerical issues.
+        degree: int, default=2
+            Degree of the polynomial kernel function ('poly').
+        coef0: float, default=0.0   
+            Independent term in kernel function ('poly' and 'sigmoid').
+        gamma: float, default=1.0   
+            Kernel coefficient for 'rbf', 'poly' and 'sigmoid'.
         """
         self.kernel = kernel 
         self.C = C
         self.max_iter = max_iter
         self.tau = tau
         self.eps = eps
-
-        self.degree = degree # for polynomial kernel
-        self.coef0 = coef0 # for polynomial/sigmoid kernel
-        self.gamma = gamma # for RBF kernel
+        self.degree = degree
+        self.coef0 = coef0
+        self.gamma = gamma
         
     
     def compute_kernel(self, x1, x2):
         """
-        Function to compute the kernel function
+        Compute the kernel function between two samples.
+
+        Parameters:
+        x1: numpy array
+            The first sample.
+        x2: numpy array
+            The second sample.  
+
+        Returns:    
+        float
+            The result of the kernel function  
         """
         if self.kernel == 'linear':
             return np.dot(x1, x2.T)
-        
         elif self.kernel == 'poly':
             return (np.dot(x1, x2.T) + self.coef0) ** self.degree
-        
         elif self.kernel == 'rbf':
             return np.exp(-self.gamma * np.linalg.norm(x1 - x2) ** 2)
-        
         elif self.kernel == 'sigmoid':
             return np.tanh(self.gamma * np.dot(x1, x2.T) + self.coef0)
-        
         else:
             raise ValueError("Unsupported kernel type: {}".format(self.kernel))
-        
-
 
     def compute_eta(self, X, i, j):
         """
-        Function to compute eta
+        Compute the second derivative of the objective function along the diagonal.
 
-        Args:
-            X : Training data features
-            i : index of the Lagrange multiplier 1
-            j : index of the Lagrange multiplier 2
+        Parameters:
+        X: numpy array
+            The input samples.
+        i: int
+            The index of the first sample.
+        j: int
+            The index of the second sample.
 
-        Return:
-            Value of the second derivative of the objective function
+        Returns:
+        float
+            The second derivative of the objective function along the diagonal
         """
         K_ij = self.compute_kernel(X[i], X[j])
         K_ii = self.compute_kernel(X[i], X[i])
@@ -71,21 +87,24 @@ class SVM:
         eta = 2 * K_ij - K_ii - K_jj
         return eta
 
-    def select_violated_pair(self, n) :
+    def select_violated_pair(self, n):
         """
-        Function to select the maximum pair of the Lagrange multipliers that violated the KKT conditions
+        Select the pair of indices (index_alpha_1, index_alpha_2) that violate the KKT conditions.
 
-        Args:
-            n (int) : number of samples 
-        Return:
-            Index for the pair of the Lagrange multipliers
+        Parameters:
+        n: int
+            The number of samples.
+
+        Returns:
+        int
+            The index of the first sample.
         """
         I_all = np.arange(n)
-        I_0 = [i for i in I_all if ((self.alphas[i] > 0) & (self.alphas[i] < self.C))]
-        I_1 = [i for i in I_all if ((self.y_train[i] == 1) & (self.alphas[i] == 0))]
-        I_2 = [i for i in I_all if ((self.y_train[i] == -1) & (self.alphas[i] == self.C))]
-        I_3 = [i for i in I_all if ((self.y_train[i] == 1) & (self.alphas[i] == self.C))]
-        I_4 = [i for i in I_all if ((self.y_train[i] == -1) & (self.alphas[i] == 0))]
+        I_0 = [i for i in I_all if (0 < self.alphas[i] < self.C)]
+        I_1 = [i for i in I_all if (self.y_train[i] == 1 and self.alphas[i] == 0)]
+        I_2 = [i for i in I_all if (self.y_train[i] == -1 and self.alphas[i] == self.C)]
+        I_3 = [i for i in I_all if (self.y_train[i] == 1 and self.alphas[i] == self.C)]
+        I_4 = [i for i in I_all if (self.y_train[i] == -1 and self.alphas[i] == 0)]
 
         I_up = I_0 + I_1 + I_2
         I_low = I_0 + I_3 + I_4
@@ -105,50 +124,53 @@ class SVM:
 
     def compute_bounds(self, index_alpha_1, index_alpha_2):
         """
-        Function to compute the bounds L and H 
+        Compute the bounds L and H for the alpha_2.
 
-        Args:
-            index_alpha_1 (int): Index for alpha1
-            index_alpha_2 (int): Index for alpha2
+        Parameters:
+        index_alpha_1: int
+            The index of the first sample.
+        index_alpha_2: int
+            The index of the second sample.
 
-        Return:
-            The bounds L and H
+        Returns:
+        float
+            The lower bound L.
+        float
+            The upper bound H.
         """
-        y1 = self.y_train[index_alpha_1]
-        y2 = self.y_train[index_alpha_2]
-        alpha1 = self.alphas[index_alpha_1]
-        alpha2 = self.alphas[index_alpha_2]
 
-        if y1 == y2:
-            L = max(0, alpha1 + alpha2 - self.C)
-            H = min(self.C, alpha1 + alpha2)
+        if self.y_train[index_alpha_1] == self.y_train[index_alpha_2]:
+            L = max(0, self.alphas[index_alpha_1] + self.alphas[index_alpha_2] - self.C)
+            H = min(self.C, self.alphas[index_alpha_1] + self.alphas[index_alpha_2])
         else:
-            L = max(0, alpha2 - alpha1)
-            H = min(self.C, self.C + alpha2 - alpha1)
+            L = max(0, self.alphas[index_alpha_2] - self.alphas[index_alpha_1])
+            H = min(self.C, self.C + self.alphas[index_alpha_2] - self.alphas[index_alpha_1])
 
         return L, H
     
     def compute_F(self, X):
         """
-        Compute the decision function F for given input X.
+        Compute the decision function F(x) = w^T x + b.
 
-        Args:
-            X : Input data features
+        Parameters:
+        X: numpy array
+            The input samples.
 
         Returns:
-            Decision function values
+        numpy array
+            The decision function F(x) = w^T x + b.
         """
         K = self.compute_kernel(X, self.X_train)  # Kernel matrix between X and X_train
         F = np.dot(K, self.alphas * self.y_train) + self.b  
         return F
-        
 
     def compute_objective_function(self):
         """
-        Function to compute the objective function
+        Compute the objective function.
 
-        Return:
-            Objective function value
+        Returns:
+        float
+            The value of the objective function.
         """
         n_samples = self.X_train.shape[0]
         term1 = 0.0
@@ -162,145 +184,173 @@ class SVM:
         objective_value = term1 - term2
         return objective_value
 
-
-    
-    def update_alphas(self, i, j, E_i, E_j, eta, L, H):
+    def update_alphas(self, index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
         """
-        Function to update the alphas
+        Update the alpha values based on the SMO algorithm.
 
-        Args:
-            index_alpha_1 : index of the Lagrange multipliers 1
-            index_alpha_1 : index of the Lagrange multipliers 2
-            E_1 : Error 1
-            E_2 : Error 2
-            eta : second derivative of the objective function
-            L, H : bounds
+        Parameters:
+        index_alpha_1: int
+            Index of the first sample.
+        index_alpha_2: int
+            Index of the second sample.
+        E_1: float
+            Error of the first sample.
+        E_2: float
+            Error of the second sample.
+        eta: float
+            Second derivative of the objective function along the diagonal.
+        L: float
+            Lower bound.
+        H: float
+            Upper bound.
+            
+        Returns:
+        bool
+            True if the alpha values were updated, False otherwise.
         """
-        # y1 = self.y_train[index_alpha_1]
-        # y2 = self.y_train[index_alpha_2]
+        alpha_i_old, alpha_j_old = self.alphas[index_alpha_1], self.alphas[index_alpha_2]
         
         if eta >= 0:
+            print("eta >= 0 : on part")
             return False
 
-        alpha_i_old = self.alphas[i]
-        alpha_j_old = self.alphas[j]
+        alpha_j_new = alpha_j_old - self.y_train[index_alpha_2] * (E_1 - E_2) / eta
+        alpha_j_new = max(L, min(alpha_j_new, H))
+        
+        # if abs(alpha_j_new - alpha_j_old) < self.eps:
+        #     return False
+        
+        alpha_i_new = alpha_i_old + self.y_train[index_alpha_1] * self.y_train[index_alpha_2] * (alpha_j_old - alpha_j_new)
+        
+        self.alphas[index_alpha_1] = alpha_i_new
+        self.alphas[index_alpha_2] = alpha_j_new
 
-        self.alphas[j] -= (self.y_train[j] * (E_i - E_j)) / eta
-        self.alphas[j] = np.clip(self.alphas[j], L, H)
-
-        if abs(self.alphas[j] - alpha_j_old) < self.eps:
-            return False
-
-        self.alphas[i] += self.y_train[i] * self.y_train[j] * (alpha_j_old - self.alphas[j])
-
+        # print("alpha_i_new:", alpha_i_new)  
         return True
-
-        # # alpha_2_new
-        # self.alphas[index_alpha_2] -= (y2 * (E_1 - E_2) / eta) 
         
-        # # alpha_2_new_clipped
-        # if self.alphas[index_alpha_2] >= H :
-        #     self.alphas[index_alpha_2] = H
-        # elif self.alphas[index_alpha_2] <= L :
-        #     self.alphas[index_alpha_2] = L
 
-        # # alpha_1_new 
-        # self.alphas[index_alpha_1] += y1*y2 * (self.old_alpha2 - self.alphas[index_alpha_2])
 
-    
-    def update_threshold(self, ind1, ind2, E_1, E_2, y1, y2):
+    def update_threshold(self, index_alpha_1, index_alpha_2, E_1, E_2, alpha_i_old, alpha_j_old):
         """
-        Function to update the threshold
+        Update the threshold value b.
+
+        Parameters:
+        index_alpha_1: int
+            The index of the first sample.
+        index_alpha_2: int
+            The index of the second sample.
+        E_1: float
+            The error of the first sample.
+        E_2: float
+            The error of the second sample.
+        alpha_i_old: float
+            The old value of the first alpha.
+        alpha_j_old: float
+            The old value of the second alpha.
         """
-        b1 = self.b - E_1 - y1 * (self.alphas[ind1] - self.old_alpha1) * self.compute_kernel(self.X_train[ind1], self.X_train[ind1]) - y2 * (self.alphas[ind2] - self.old_alpha2) * self.compute_kernel(self.X_train[ind1], self.X_train[ind2])
-        b2 = self.b - E_2 - y1 * (self.alphas[ind1] - self.old_alpha1) * self.compute_kernel(self.X_train[ind1], self.X_train[ind2]) - y2 * (self.alphas[ind2] - self.old_alpha2) * self.compute_kernel(self.X_train[ind2], self.X_train[ind2])
+        b1 = self.b - E_1 - self.y_train[index_alpha_1] * (self.alphas[index_alpha_1] - alpha_i_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_1]) - \
+             self.y_train[index_alpha_2] * (self.alphas[index_alpha_2] - alpha_j_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_2])
         
-        if 0 < self.alphas[ind1] < self.C:
+        b2 = self.b - E_2 - self.y_train[index_alpha_1] * (self.alphas[index_alpha_1] - alpha_i_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_2]) - \
+             self.y_train[index_alpha_2] * (self.alphas[index_alpha_2] - alpha_j_old) * self.compute_kernel(self.X_train[index_alpha_2], self.X_train[index_alpha_2])
+        
+        if 0 < self.alphas[index_alpha_1] < self.C:
             self.b = b1
-        elif 0 < self.alphas[ind2] < self.C:
+        elif 0 < self.alphas[index_alpha_2] < self.C:
             self.b = b2
         else:
             self.b = (b1 + b2) / 2
-
     
     def scale_labels(self, labels):
         """
-        Function to scale labels to -1 and 1.
+        Scale the labels to -1 and 1.
+
+        Parameters:
+        labels: numpy array
+            The input labels.
+
+        Returns:
+        numpy array
+            The scaled labels.
         """
         min_val = np.min(labels)
         max_val = np.max(labels)
-        
         return np.where(labels == min_val, -1, 1)
-
-   
 
     def fit(self, X_train, y_train):
         """
-        Function to train the algorithm
+        Fit the model according to the given training data.
+
+        Parameters:
+        X_train: numpy array
+            The input samples.
+        y_train: numpy array
+            The target values.
         """
         self.X_train = X_train
         self.y_train = self.scale_labels(y_train)
         n, m = X_train.shape
         
-        # Initialisation of the alphas
         self.alphas = np.zeros(n)
-        # Initialisation of the threshold
         self.b = 0.0
 
         for _ in range(self.max_iter):
-            # Compute of the index for both alphas
             index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
-            if (index_alpha_1 == -1 or index_alpha_2 == -1):
-                # has converge
+            if index_alpha_1 == -1 and index_alpha_2 == -1:
+                print("Converged")
                 break
-            
-            # Compute of the bounds
+
+            if _ % 100 == 0:
+                print("self.alphas[index_alpha_1]:", self.alphas[index_alpha_1])
+                print("self.alphas[index_alpha_2]:", self.alphas[index_alpha_2])
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
-            if L == H :
-                continue # to next i
-            
-            # Compute of eta
-            # eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
-            # if eta >= 0 :
-                #continue  # to next i
+            if L == H:
+                continue
             
             E_1 = self.compute_F(self.X_train[index_alpha_1].reshape(1, -1)) - self.y_train[index_alpha_1]
             E_2 = self.compute_F(self.X_train[index_alpha_2].reshape(1, -1)) - self.y_train[index_alpha_2]
 
             eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
+            
             if not self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
                 continue
-            
-            """
-            # Compute of the objective function f
-            f = self.compute_objective_function()
 
-            # Compute of the Error E_i which is the error between the SVM output on the ith example and the true label
-            E_1 = f[X_train[index_alpha_1]] - y_train[index_alpha_1]
-            E_2 = f[X_train[index_alpha_2]] - y_train[index_alpha_2]
-            """
+            self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.alphas[index_alpha_1], self.alphas[index_alpha_2])
 
-            # E_1 = self.compute_F(self.X_train)[index_alpha_1] - self.y_train[index_alpha_1]
-            # E_2 = self.compute_F(self.X_train)[index_alpha_2] - self.y_train[index_alpha_2]
-
-            # Update of the lagrange multipliers
-            # self.old_alpha1 = self.alphas[index_alpha_1]
-            # self.old_alpha2 = self.alphas[index_alpha_2]
-            # self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H)
-
-            # Update of the threshold b 
-            self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.y_train[index_alpha_1], self.y_train[index_alpha_2])
-
-   
+    
+    
     def predict(self, X):
         """
-        Predict the class labels for the given input data.
+        Perform classification on samples in X.
 
-        Args:
-            X : Input data features
+        Parameters:
+        X: numpy array
+            The input samples.
 
         Returns:
-            Predicted class labels
+        numpy array
+            The predicted classes.
         """
-        F = self.compute_F(X)  # Compute the decision function for the input data
-        return np.sign(F)  # Return the sign of the decision function values
+        F = self.compute_F(X)
+        return np.sign(F)
+
+# Load dataset and prepare the data
+iris = load_iris()
+X = iris.data[50:, 2:]
+Y = iris.target[50:]
+
+# # Normalize the features
+# scaler = StandardScaler()
+# X = scaler.fit_transform(X)
+
+# Split the data
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+
+# Train the SVM
+svm = SVM(kernel='linear', C=1)
+svm.fit(X_train, Y_train)
+
+# Evaluate the model
+Y_pred = svm.predict(X_test)
+accuracy = np.mean(Y_pred == svm.scale_labels(Y_test))
+print(f'Accuracy: {accuracy * 100:.2f}%')
