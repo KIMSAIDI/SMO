@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from sklearn.datasets import load_iris
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
 
 class SVM:
     def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef0=0.0, gamma=1.0):
@@ -33,6 +34,7 @@ class SVM:
         self.degree = degree
         self.coef0 = coef0
         self.gamma = gamma
+        self.objective_values = []
         
     
     def compute_kernel(self, x1, x2):
@@ -182,6 +184,7 @@ class SVM:
         term2 = np.sum(self.alphas)
         
         objective_value = term1 - term2
+        
         return objective_value
 
     def update_alphas(self, index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
@@ -209,13 +212,12 @@ class SVM:
             True if the alpha values were updated, False otherwise.
         """
         alpha_i_old, alpha_j_old = self.alphas[index_alpha_1], self.alphas[index_alpha_2]
-        
+    
         if eta >= 0:
-            print("eta >= 0 : on part")
             return False
 
         alpha_j_new = alpha_j_old - self.y_train[index_alpha_2] * (E_1 - E_2) / eta
-        alpha_j_new = max(L, min(alpha_j_new, H))
+        alpha_j_new = float(np.array(max(L, min(alpha_j_new, H))).item())
         
         # if abs(alpha_j_new - alpha_j_old) < self.eps:
         #     return False
@@ -224,8 +226,7 @@ class SVM:
         
         self.alphas[index_alpha_1] = alpha_i_new
         self.alphas[index_alpha_2] = alpha_j_new
-
-        # print("alpha_i_new:", alpha_i_new)  
+         
         return True
         
 
@@ -276,6 +277,73 @@ class SVM:
         min_val = np.min(labels)
         max_val = np.max(labels)
         return np.where(labels == min_val, -1, 1)
+    
+    
+    def get_support_vectors(self):
+        """
+        Get the support vectors.
+
+        Returns:
+        numpy array
+            The support vectors.
+        """
+        return self.X_train[self.alphas > 1e-5]
+    
+    
+    def plot_svm_decision_boundary(self, X, y, svm):
+        """
+        Plot the decision boundary of the SVM along with the data points and support vectors.
+
+        Parameters:
+        X: numpy array
+            The input samples.
+        y: numpy array
+            The target values.
+        svm: SVM object
+            The trained SVM model.
+        """
+        # Plot the data points
+        scatter = plt.scatter(X[:, 0], X[:, 1], c=y, cmap='coolwarm', s=30, edgecolors='k')
+        
+        # Create a custom legend for the classes
+        class_0 = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='r', markersize=8, label='Versicolor')
+        class_1 = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='b', markersize=8, label='Virginica')
+        plt.legend(handles=[class_0, class_1], title="Classes")
+
+        # Plot the support vectors
+        support_vectors = svm.get_support_vectors()
+        plt.scatter(support_vectors[:, 0], support_vectors[:, 1], facecolors='none', s=100, edgecolors='k', linewidths=1.5, label='Support vectors')
+        
+        # Plot the decision boundary
+        ax = plt.gca()
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        
+        xx, yy = np.meshgrid(np.linspace(xlim[0], xlim[1], 50), np.linspace(ylim[0], ylim[1], 50))
+        grid = np.c_[xx.ravel(), yy.ravel()]
+        Z = svm.compute_F(grid).reshape(xx.shape)
+        
+        ax.contour(xx, yy, Z, levels=[-1, 0, 1], linestyles=['--', '-', '--'], colors='k')
+        
+        plt.xlabel('Feature 1')
+        plt.ylabel('Feature 2')
+        plt.title('SVM Decision Boundary')
+
+        # Add legend for support vectors
+        plt.legend(loc='upper right')
+        plt.show()
+        
+        
+    def plot_objective_function(self):
+        plt.plot(self.objective_values, label='Objective Function')
+        plt.xlabel('Iteration')
+        plt.ylabel('Objective Function Value')
+        plt.title('Objective Function Value vs Iterations')
+        plt.legend()
+        plt.show()
+
+
+
 
     def fit(self, X_train, y_train):
         """
@@ -294,15 +362,12 @@ class SVM:
         self.alphas = np.zeros(n)
         self.b = 0.0
 
-        for _ in range(self.max_iter):
+        for _ in tqdm(range(self.max_iter)):
             index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
             if index_alpha_1 == -1 and index_alpha_2 == -1:
                 print("Converged")
                 break
 
-            if _ % 100 == 0:
-                print("self.alphas[index_alpha_1]:", self.alphas[index_alpha_1])
-                print("self.alphas[index_alpha_2]:", self.alphas[index_alpha_2])
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
             if L == H:
                 continue
@@ -317,6 +382,8 @@ class SVM:
 
             self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.alphas[index_alpha_1], self.alphas[index_alpha_2])
 
+            objective_value = self.compute_objective_function()
+            self.objective_values.append(objective_value)
     
     
     def predict(self, X):
@@ -333,24 +400,3 @@ class SVM:
         """
         F = self.compute_F(X)
         return np.sign(F)
-
-# Load dataset and prepare the data
-iris = load_iris()
-X = iris.data[50:, 2:]
-Y = iris.target[50:]
-
-# # Normalize the features
-# scaler = StandardScaler()
-# X = scaler.fit_transform(X)
-
-# Split the data
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
-
-# Train the SVM
-svm = SVM(kernel='linear', C=1)
-svm.fit(X_train, Y_train)
-
-# Evaluate the model
-Y_pred = svm.predict(X_test)
-accuracy = np.mean(Y_pred == svm.scale_labels(Y_test))
-print(f'Accuracy: {accuracy * 100:.2f}%')
