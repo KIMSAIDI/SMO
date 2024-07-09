@@ -168,7 +168,7 @@ class SVM:
             The decision function F(x) = w^T x + b.
         """
         K = self.compute_kernel(X, self.X_train)
-        return np.dot(K, self.alphas * self.y_train) + self.b
+        return np.dot(K, self.alphas * self.y_train) - self.y_train
        
     
     def compute_objective_function(self):
@@ -368,12 +368,20 @@ class SVM:
         self.b = 0.0
 
         for _ in tqdm(range(self.max_iter)):
+            
             index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
-            if index_alpha_1 == -1 or index_alpha_2 == -1:
+            previous_objective_value = self.objective_values[-1] if len(self.objective_values) > 0 else -1
+            objective_value = self.compute_objective_function()
+            self.objective_values.append(objective_value)
+
+            if (index_alpha_1 == -1 or index_alpha_2 == -1) or (objective_value == previous_objective_value):
                 print("Converged")
                 break
             eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
             
+            print(index_alpha_1)
+            print(index_alpha_2)
+
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
             if L == H:
                 continue
@@ -386,10 +394,9 @@ class SVM:
             if not self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
                 continue
 
-            self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, alpha_1_old, alpha_2_old)
+            # self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, alpha_1_old, alpha_2_old)
 
-            objective_value = self.compute_objective_function()
-            self.objective_values.append(objective_value)
+            
     
     
             if abs(objective_value) < self.tol:
@@ -398,7 +405,11 @@ class SVM:
         print(f'Number of iterations: {_}')
         print(f'Objective function value: {objective_value}')
         print(f'Support vectors: {np.sum(self.alphas > 1e-5)}')
-        print(f'Self.b: {self.b}')
+        
+
+        S = np.sum(self.alphas > 1e-5)
+        b = 1/S * np.sum(self.y_train - np.sum(y_train * self.alphas* self.compute_kernel(self.X_train, self.X_train), axis=0))
+        print(f'b: {b}')
         
     
             
@@ -416,3 +427,34 @@ class SVM:
         """
         F = self.compute_F(X)
         return np.sign(F)
+
+
+
+# Load dataset and prepare the data
+iris = load_iris()
+X = iris.data[50:, 2:]
+Y = iris.target[50:]
+
+# # Normalize the features
+# scaler = StandardScaler()
+# X = scaler.fit_transform(X)
+
+# Split the data
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+
+# Train the SVM
+svm = SVM(kernel='linear', C=1)
+svm.fit(X_train, Y_train)
+
+
+# Evaluate the model
+Y_pred = svm.predict(X_test)
+accuracy = np.mean(Y_pred == svm.scale_labels(Y_test))
+print(f'Accuracy: {accuracy * 100:.2f}%')
+print(f'self.b: {svm.b}')
+
+print("Y_pred:", Y_pred)
+print("Y_test:", svm.scale_labels(Y_test))
+
+# Plot the decision boundary
+svm.plot_svm_decision_boundary(X_train, Y_train, svm)
