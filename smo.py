@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
 class SVM:
-    def __init__(self, kernel='linear', C=1, max_iter=10000, tau=1e-3, eps=1e-2, degree=2, coef0=0.0, gamma=1.0):
+    def __init__(self, kernel='linear', C=float('-inf'), max_iter=5000, tau=1e-3, eps=1e-2, degree=2, coef0=0.0, gamma=1.0, tol=1e-5):
         """
         kernel: str, default='linear'
             Specifies the kernel type to be used in the algorithm.
@@ -34,6 +34,7 @@ class SVM:
         self.degree = degree
         self.coef0 = coef0
         self.gamma = gamma
+        self.tol = tol
         self.objective_values = []
         
     
@@ -115,14 +116,18 @@ class SVM:
 
         max_diff = -np.inf
         index_alpha_1, index_alpha_2 = -1, -1
-
+         
         for i in I_up:
             for j in I_low:
                 if F[i] - F[j] > max_diff:
                     max_diff = F[i] - F[j]
                     index_alpha_1, index_alpha_2 = i, j
 
-        return index_alpha_1, index_alpha_2
+        
+        # if max_diff < self.tau:
+        #     return -1, -1
+        
+        return I_up[index_alpha_1], I_low[index_alpha_2]
 
     def compute_bounds(self, index_alpha_1, index_alpha_2):
         """
@@ -162,10 +167,10 @@ class SVM:
         numpy array
             The decision function F(x) = w^T x + b.
         """
-        K = self.compute_kernel(X, self.X_train)  # Kernel matrix between X and X_train
-        F = np.dot(K, self.alphas * self.y_train) + self.b  
-        return F
-
+        K = self.compute_kernel(X, self.X_train)
+        return np.dot(K, self.alphas * self.y_train) + self.b
+       
+    
     def compute_objective_function(self):
         """
         Compute the objective function.
@@ -364,10 +369,11 @@ class SVM:
 
         for _ in tqdm(range(self.max_iter)):
             index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
-            if index_alpha_1 == -1 and index_alpha_2 == -1:
+            if index_alpha_1 == -1 or index_alpha_2 == -1:
                 print("Converged")
                 break
-
+            eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
+            
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
             if L == H:
                 continue
@@ -375,17 +381,27 @@ class SVM:
             E_1 = self.compute_F(self.X_train[index_alpha_1].reshape(1, -1)) - self.y_train[index_alpha_1]
             E_2 = self.compute_F(self.X_train[index_alpha_2].reshape(1, -1)) - self.y_train[index_alpha_2]
 
-            eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
-            
+            alpha_1_old, alpha_2_old = self.alphas[index_alpha_1], self.alphas[index_alpha_2]
+
             if not self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
                 continue
 
-            self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, self.alphas[index_alpha_1], self.alphas[index_alpha_2])
+            self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, alpha_1_old, alpha_2_old)
 
             objective_value = self.compute_objective_function()
             self.objective_values.append(objective_value)
     
     
+            if abs(objective_value) < self.tol:
+                break
+            
+        print(f'Number of iterations: {_}')
+        print(f'Objective function value: {objective_value}')
+        print(f'Support vectors: {np.sum(self.alphas > 1e-5)}')
+        print(f'Self.b: {self.b}')
+        
+    
+            
     def predict(self, X):
         """
         Perform classification on samples in X.
