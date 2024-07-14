@@ -1,12 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.datasets import load_iris
+from sklearn.datasets import load_wine
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
+import time
 
 class SVM:
-    def __init__(self, kernel='linear', C=float('-inf'), max_iter=5000, tau=1e-3, eps=1e-2, degree=2, coef0=0.0, gamma=1.0, tol=1e-5):
+    def __init__(self, kernel='linear', C=float('-inf'), max_iter=3000, tau=1e-3, eps=1e-10, degree=2, coef0=0.0, gamma=1.0, tol=1e-5):
         """
         kernel: str, default='linear'
             Specifies the kernel type to be used in the algorithm.
@@ -62,6 +64,8 @@ class SVM:
             return np.tanh(self.gamma * np.dot(x1, x2.T) + self.coef0)
         else:
             raise ValueError("Unsupported kernel type: {}".format(self.kernel))
+        
+        
 
     def compute_eta(self, X, i, j):
         """
@@ -90,7 +94,7 @@ class SVM:
         eta = 2 * K_ij - K_ii - K_jj
         return eta
 
-    def select_violated_pair(self, n):
+    def select_violated_pair(self, n, K):
         """
         Select the pair of indices (index_alpha_1, index_alpha_2) that violate the KKT conditions.
 
@@ -111,23 +115,27 @@ class SVM:
 
         I_up = I_0 + I_1 + I_2
         I_low = I_0 + I_3 + I_4
+        
 
-        F = self.compute_F(self.X_train)
+        F = self.compute_F(self.X_train, K)
+        
 
         max_diff = -np.inf
         index_alpha_1, index_alpha_2 = -1, -1
          
         for i in I_up:
             for j in I_low:
-                if F[i] - F[j] > max_diff:
-                    max_diff = F[i] - F[j]
-                    index_alpha_1, index_alpha_2 = i, j
-
+                if F[i] < F[j] - self.tau:
+                    violation = F[j] - F[i] - self.tau
+                    if violation > max_diff:
+                        max_diff = violation
+                        index_alpha_1, index_alpha_2 = i, j
         
-        # if max_diff < self.tau:
-        #     return -1, -1
+        if max_diff == -np.inf:
+            return -1, -1
         
-        return I_up[index_alpha_1], I_low[index_alpha_2]
+        return index_alpha_1, index_alpha_2
+        
 
     def compute_bounds(self, index_alpha_1, index_alpha_2):
         """
@@ -155,22 +163,17 @@ class SVM:
 
         return L, H
     
-    def compute_F(self, X):
-        """
-        Compute the decision function F(x) = w^T x + b.
-
-        Parameters:
-        X: numpy array
-            The input samples.
-
-        Returns:
-        numpy array
-            The decision function F(x) = w^T x + b.
-        """
-        K = self.compute_kernel(X, self.X_train)
-        return np.dot(K, self.alphas * self.y_train) - self.y_train
-       
     
+    def compute_F(self, X, K):
+        """
+        Compute the value of the function F.
+        """
+        
+        Y = np.outer(self.y_train, self.y_train)   
+        F = self.y_train * (np.sum(np.dot(Y * K, np.diag(self.alphas)), axis=1) - 1)
+       
+        return F  
+      
     def compute_objective_function(self):
         """
         Compute the objective function.
@@ -185,14 +188,12 @@ class SVM:
             for j in range(n_samples):
                 term1 += self.alphas[i] * self.alphas[j] * self.y_train[i] * self.y_train[j] * self.compute_kernel(self.X_train[i], self.X_train[j])
         term1 *= 0.5
-        
         term2 = np.sum(self.alphas)
-        
         objective_value = term1 - term2
         
         return objective_value
-
-    def update_alphas(self, index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
+      
+    def update_alphas(self, index_alpha_1, index_alpha_2, eta, L, H, K):
         """
         Update the alpha values based on the SMO algorithm.
 
@@ -201,10 +202,7 @@ class SVM:
             Index of the first sample.
         index_alpha_2: int
             Index of the second sample.
-        E_1: float
-            Error of the first sample.
-        E_2: float
-            Error of the second sample.
+
         eta: float
             Second derivative of the objective function along the diagonal.
         L: float
@@ -219,54 +217,29 @@ class SVM:
         alpha_i_old, alpha_j_old = self.alphas[index_alpha_1], self.alphas[index_alpha_2]
     
         if eta >= 0:
+            print("eta >= 0, on quitte")
             return False
 
-        alpha_j_new = alpha_j_old - self.y_train[index_alpha_2] * (E_1 - E_2) / eta
-        alpha_j_new = float(np.array(max(L, min(alpha_j_new, H))).item())
         
-        # if abs(alpha_j_new - alpha_j_old) < self.eps:
-        #     return False
+        w = self.alphas * self.y_train 
+       
+        if self.y_train[index_alpha_1] == self.y_train[index_alpha_2]:
+            v2 = (self.y_train[index_alpha_1] * (np.dot(w, K[index_alpha_1]) - np.dot(w, K[index_alpha_2]))) / eta
+        else :
+            v2 = (2 + self.y_train[index_alpha_1] * (np.dot(w, K[index_alpha_1]) - np.dot(w, K[index_alpha_2]))) / eta
+      
+        alpha_j_new2 = -v2 + self.alphas[index_alpha_2]
+        alpha_j_new2 = min(H, max(L, alpha_j_new2))
+
         
-        alpha_i_new = alpha_i_old + self.y_train[index_alpha_1] * self.y_train[index_alpha_2] * (alpha_j_old - alpha_j_new)
-        
+        alpha_i_new = alpha_i_old + self.y_train[index_alpha_1] * self.y_train[index_alpha_2] * (alpha_j_old - alpha_j_new2)
+    
         self.alphas[index_alpha_1] = alpha_i_new
-        self.alphas[index_alpha_2] = alpha_j_new
+        self.alphas[index_alpha_2] = alpha_j_new2
          
         return True
-        
-
-
-    def update_threshold(self, index_alpha_1, index_alpha_2, E_1, E_2, alpha_i_old, alpha_j_old):
-        """
-        Update the threshold value b.
-
-        Parameters:
-        index_alpha_1: int
-            The index of the first sample.
-        index_alpha_2: int
-            The index of the second sample.
-        E_1: float
-            The error of the first sample.
-        E_2: float
-            The error of the second sample.
-        alpha_i_old: float
-            The old value of the first alpha.
-        alpha_j_old: float
-            The old value of the second alpha.
-        """
-        b1 = self.b - E_1 - self.y_train[index_alpha_1] * (self.alphas[index_alpha_1] - alpha_i_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_1]) - \
-             self.y_train[index_alpha_2] * (self.alphas[index_alpha_2] - alpha_j_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_2])
-        
-        b2 = self.b - E_2 - self.y_train[index_alpha_1] * (self.alphas[index_alpha_1] - alpha_i_old) * self.compute_kernel(self.X_train[index_alpha_1], self.X_train[index_alpha_2]) - \
-             self.y_train[index_alpha_2] * (self.alphas[index_alpha_2] - alpha_j_old) * self.compute_kernel(self.X_train[index_alpha_2], self.X_train[index_alpha_2])
-        
-        if 0 < self.alphas[index_alpha_1] < self.C:
-            self.b = b1
-        elif 0 < self.alphas[index_alpha_2] < self.C:
-            self.b = b2
-        else:
-            self.b = (b1 + b2) / 2
     
+        
     def scale_labels(self, labels):
         """
         Scale the labels to -1 and 1.
@@ -279,73 +252,56 @@ class SVM:
         numpy array
             The scaled labels.
         """
-        min_val = np.min(labels)
-        max_val = np.max(labels)
-        return np.where(labels == min_val, -1, 1)
-    
+        self.min_val = np.min(labels)
+        self.max_val = np.max(labels)
+
+        return np.where(labels == self.min_val, -1, 1)
     
     def get_support_vectors(self):
-        """
-        Get the support vectors.
+        ind_sv = np.where((self.eps < self.alphas) & (self.alphas < self.C))[0]
+        ind_inner = np.where(self.alphas == self.C)[0]
 
-        Returns:
-        numpy array
-            The support vectors.
-        """
-        return self.X_train[self.alphas > 1e-5]
+        return ind_sv, ind_inner
     
+
     
-    def plot_svm_decision_boundary(self, X, y, svm):
+    def plot_data_with_boundary(self):
         """
-        Plot the decision boundary of the SVM along with the data points and support vectors.
-
-        Parameters:
-        X: numpy array
-            The input samples.
-        y: numpy array
-            The target values.
-        svm: SVM object
-            The trained SVM model.
+        Plot data points and decision boundary
         """
-        # Plot the data points
-        scatter = plt.scatter(X[:, 0], X[:, 1], c=y, cmap='coolwarm', s=30, edgecolors='k')
-        
-        # Create a custom legend for the classes
-        class_0 = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='r', markersize=8, label='Versicolor')
-        class_1 = plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='b', markersize=8, label='Virginica')
-        plt.legend(handles=[class_0, class_1], title="Classes")
+        # Create mesh grid
+        x_min, x_max = self.X_train[:, 0].min() - 1, self.X_train[:, 0].max() + 1
+        y_min, y_max = self.X_train[:, 1].min() - 1, self.X_train[:, 1].max() + 1
+        xx, yy = np.meshgrid(np.linspace(x_min, x_max, 500), np.linspace(y_min, y_max, 500))
 
-        # Plot the support vectors
-        support_vectors = svm.get_support_vectors()
-        plt.scatter(support_vectors[:, 0], support_vectors[:, 1], facecolors='none', s=100, edgecolors='k', linewidths=1.5, label='Support vectors')
-        
-        # Plot the decision boundary
-        ax = plt.gca()
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
-        
-        xx, yy = np.meshgrid(np.linspace(xlim[0], xlim[1], 50), np.linspace(ylim[0], ylim[1], 50))
-        grid = np.c_[xx.ravel(), yy.ravel()]
-        Z = svm.compute_F(grid).reshape(xx.shape)
-        
-        ax.contour(xx, yy, Z, levels=[-1, 0, 1], linestyles=['--', '-', '--'], colors='k')
-        
-        plt.xlabel('Feature 1')
-        plt.ylabel('Feature 2')
+        # Plot data points
+        plt.scatter(self.X_train[self.y_train == -1][:, 0], self.X_train[self.y_train == -1][:, 1], color='red', marker='s', label='Setosa')
+        plt.scatter(self.X_train[self.y_train == 1][:, 0], self.X_train[self.y_train == 1][:, 1], color='blue', marker='x', label='Versicolor')
+
+        # Plot support vectors
+        plt.scatter(self.X_train[self.ind_sv][:, 0], self.X_train[self.ind_sv][:, 1], s=100, facecolors='none', edgecolors='k', label='Support Vectors')
+
+        # Plot decision boundary
+        Z = self.predict(np.c_[xx.ravel(), yy.ravel()]).reshape(xx.shape)
+        plt.contour(xx, yy, Z, levels=[0], colors='k', linewidths=1)
+
+        plt.xlabel('Petal Length (cm)')
+        plt.ylabel('Petal Width (cm)')
         plt.title('SVM Decision Boundary')
-
-        # Add legend for support vectors
-        plt.legend(loc='upper right')
-        plt.show()
-        
-        
-    def plot_objective_function(self):
-        plt.plot(self.objective_values, label='Objective Function')
-        plt.xlabel('Iteration')
-        plt.ylabel('Objective Function Value')
-        plt.title('Objective Function Value vs Iterations')
         plt.legend()
         plt.show()
+
+    def plot_objective_function(self):
+        """
+        Plot the evolution of the objective function
+        """
+        plt.plot(self.objective_values, label='Objective Function Value')
+        plt.xlabel('Iterations')
+        plt.ylabel('Objective Value')
+        plt.title('Evolution of Objective Function')
+        plt.legend()
+        plt.show()
+
 
 
 
@@ -360,59 +316,50 @@ class SVM:
         y_train: numpy array
             The target values.
         """
+       
         self.X_train = X_train
         self.y_train = self.scale_labels(y_train)
         n, m = X_train.shape
-        
         self.alphas = np.zeros(n)
         self.b = 0.0
-
-        for _ in tqdm(range(self.max_iter)):
+        
+        K = self.compute_kernel(X_train, self.X_train)
+        
+        for _ in (range(self.max_iter)):
+            # compute of the index of the pair of alphas to update
+            index_alpha_1, index_alpha_2 = self.select_violated_pair(n, K)
             
-            index_alpha_1, index_alpha_2 = self.select_violated_pair(n)
-            previous_objective_value = self.objective_values[-1] if len(self.objective_values) > 0 else -1
+            # compute of the objective function
+            previous_objective_value =  self.objective_values[-1] if len(self.objective_values) > 0 else 0.0
             objective_value = self.compute_objective_function()
             self.objective_values.append(objective_value)
 
-            if (index_alpha_1 == -1 or index_alpha_2 == -1) or (objective_value == previous_objective_value):
-                print("Converged")
+            # if the algorithm has converged
+            if (index_alpha_1 == -1 or index_alpha_2 == -1) or (_ > 1 and previous_objective_value == objective_value):
+                print("Converged in {} iterations".format(_))
                 break
-            eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
             
-            print(index_alpha_1)
-            print(index_alpha_2)
-
+            # compute the second derivative of the objective function along the diagonal
+            eta = self.compute_eta(self.X_train, index_alpha_1, index_alpha_2)
+            # compute the bounds L and H 
             L, H = self.compute_bounds(index_alpha_1, index_alpha_2)
             if L == H:
                 continue
-            
-            E_1 = self.compute_F(self.X_train[index_alpha_1].reshape(1, -1)) - self.y_train[index_alpha_1]
-            E_2 = self.compute_F(self.X_train[index_alpha_2].reshape(1, -1)) - self.y_train[index_alpha_2]
-
+           
+            # store the old values of alpha_1 and alpha_2
             alpha_1_old, alpha_2_old = self.alphas[index_alpha_1], self.alphas[index_alpha_2]
-
-            if not self.update_alphas(index_alpha_1, index_alpha_2, E_1, E_2, eta, L, H):
+            
+            # update the alphas
+            if not self.update_alphas(index_alpha_1, index_alpha_2, eta, L, H, K):
                 continue
-
-            # self.update_threshold(index_alpha_1, index_alpha_2, E_1, E_2, alpha_1_old, alpha_2_old)
-
-            
-    
-    
-            if abs(objective_value) < self.tol:
-                break
-            
-        print(f'Number of iterations: {_}')
-        print(f'Objective function value: {objective_value}')
-        print(f'Support vectors: {np.sum(self.alphas > 1e-5)}')
         
-
-        S = np.sum(self.alphas > 1e-5)
-        b = 1/S * np.sum(self.y_train - np.sum(y_train * self.alphas* self.compute_kernel(self.X_train, self.X_train), axis=0))
-        print(f'b: {b}')
-        
+         
+        self.b = (1 / self.y_train[index_alpha_1]) - np.sum(self.alphas * self.y_train * K[:, index_alpha_1])
+        self.ind_sv, self.ind_inner = self.get_support_vectors()
+       
     
-            
+    
+    
     def predict(self, X):
         """
         Perform classification on samples in X.
@@ -425,36 +372,46 @@ class SVM:
         numpy array
             The predicted classes.
         """
-        F = self.compute_F(X)
-        return np.sign(F)
+
+        K = self.compute_kernel(X, self.X_train)
+        return np.sign(np.sum(self.alphas * self.y_train * K, axis=1) + self.b)
+    
+    
+    
+    
 
 
 
-# Load dataset and prepare the data
-iris = load_iris()
-X = iris.data[50:, 2:]
-Y = iris.target[50:]
+# # Load dataset and prepare the data
+# wine = load_wine()
+# X = wine.data[50:, 2:]
+# Y = wine.target[50:]
 
-# # Normalize the features
-# scaler = StandardScaler()
-# X = scaler.fit_transform(X)
+# # # Normalize the features
+# # scaler = StandardScaler()
+# # X = scaler.fit_transform(X)
 
-# Split the data
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
+# # Split the data
+# X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=0)
 
-# Train the SVM
-svm = SVM(kernel='linear', C=1)
-svm.fit(X_train, Y_train)
+# # Train the SVM
+# svm = SVM(kernel='linear', C=1)
+# svm.fit(X_train, Y_train)
 
 
-# Evaluate the model
-Y_pred = svm.predict(X_test)
-accuracy = np.mean(Y_pred == svm.scale_labels(Y_test))
-print(f'Accuracy: {accuracy * 100:.2f}%')
-print(f'self.b: {svm.b}')
+# # Evaluate the model
+# Y_pred = svm.predict(X_test)
+# accuracy = np.mean(Y_pred == svm.scale_labels(Y_test))
+# print(f'Accuracy: {accuracy * 100:.2f}%')
+# print(f'self.b: {svm.b}')
 
-print("Y_pred:", Y_pred)
-print("Y_test:", svm.scale_labels(Y_test))
+# print("Y_pred:", Y_pred)
+# print("Y_test:", svm.scale_labels(Y_test))
 
-# Plot the decision boundary
-svm.plot_svm_decision_boundary(X_train, Y_train, svm)
+
+# # Plot data with decision boundary
+# svm.plot_data_with_boundary()
+
+# # Plot evolution of the objective function
+# svm.plot_objective_function()
+
